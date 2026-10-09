@@ -29,7 +29,6 @@ const createDefaultShiftRow = (counter: number, shift: number): ISiftEarning => 
   totalAfcEarning: 0, totalCashDepositedByOperator: 0, totalEarning: 0,
 });
 
-// Initial 10 Predefined Rows
 const createInitial10Shifts = (): ISiftEarning[] => {
   const shifts: ISiftEarning[] = [];
   for (let c = 1; c <= 5; c++) {
@@ -43,62 +42,101 @@ const calcDenomTotal = (d: IDenomination) =>
   d.d500 * 500 + d.d200 * 200 + d.d100 * 100 + d.d50 * 50 + d.d20 * 20 +
   d.d10 * 10 + d.c10 * 10 + d.c5 * 5 + d.c2 * 2 + d.c1 * 1;
 
+// Date Helper to get previous date string (YYYY-MM-DD)
+const getPreviousDateStr = (dateStr: string): string => {
+  const d = new Date(dateStr);
+  d.setDate(d.getDate() - 1);
+  return d.toISOString().split('T')[0];
+};
+const ShiftTime:string[] = ['05:30-14:30','06:30-14:30','07:30-15:30']
+
 export default function EarningDashboard() {
   const todayStr = new Date().toISOString().split('T')[0];
   const [selectedDate, setSelectedDate] = useState<string>(todayStr);
   const [stationName, setStationName] = useState('Sector 62 Noida');
-  const [compilerName, setCompilerName] = useState('SAMEER MAHESHWARI (11744)');
+  const [compilerName, setCompilerName] = useState('VINEET KUMAR SINGH (12649');
   const [shifts, setShifts] = useState<ISiftEarning[]>(createInitial10Shifts());
 
-  // Cash Management
-  const [previousDayCash, setPreviousDayCash] = useState<number>(207902);
+  // Cash Registers
+  const [previousDayCash, setPreviousDayCash] = useState<number>(0);
   const [cashInPossession, setCashInPossession] = useState<IDenomination>(emptyDenominations());
   const [cashToBank, setCashToBank] = useState<IDenomination>(emptyDenominations());
 
-  // Dropdown Row Add state
+  // Dropdown Row Add State
   const [selTom, setSelTom] = useState('6');
   const [selShift, setSelShift] = useState('1');
   const [selTiming, setSelTiming] = useState('06:00 - 14:00');
 
-  // Load Earning Data based on Selected Date
+  // Fetch Previous Day Closing Cash Handover
+  const fetchPreviousDayCashHandover = async (currentDateStr: string) => {
+    const prevDateStr = getPreviousDateStr(currentDateStr);
+    try {
+      const res = await fetch(`/api/earning?date=${prevDateStr}`);
+      if (res.ok) {
+        const prevDoc = await res.json();
+        if (prevDoc && prevDoc.todayCashOnHand !== undefined) {
+          setPreviousDayCash(prevDoc.todayCashOnHand);
+          return;
+        }
+      }
+    } catch (err) {
+      console.log('No record found for previous date:', prevDateStr);
+    }
+    setPreviousDayCash(0);
+  };
+
+  // Main Effect: Fetch Selected Date Data & Previous Day Handover
   useEffect(() => {
-    const fetchEarningData = async () => {
+    const loadSheetData = async () => {
       const today = new Date().toISOString().split('T')[0];
+
+      // Future Date Protection: Render blank sheet
       if (selectedDate > today) {
-        // Future Date: Render clean blank sheet
         setShifts(createInitial10Shifts());
         setCashInPossession(emptyDenominations());
         setCashToBank(emptyDenominations());
+        setPreviousDayCash(0);
         return;
       }
 
+      // 1. Always fetch Previous Day Cash Handover
+      await fetchPreviousDayCashHandover(selectedDate);
+
+      // 2. Fetch Selected Date's Saved Register
       try {
         const res = await fetch(`/api/earning?date=${selectedDate}`);
         if (res.ok) {
           const doc = await res.json();
           if (doc) {
-            setShifts(doc.shifts || createInitial10Shifts());
-            setPreviousDayCash(doc.previousDayCash || 0);
+            setStationName(doc.stationName || 'Sector 62 Noida');
+            setCompilerName(doc.compiledBy || '');
+            setShifts(doc.shifts && doc.shifts.length > 0 ? doc.shifts : createInitial10Shifts());
             setCashInPossession(doc.cashInPossessionDenominations || emptyDenominations());
             setCashToBank(doc.cashToBankDenominations || emptyDenominations());
+            if (doc.previousDayCash !== undefined) {
+              setPreviousDayCash(doc.previousDayCash);
+            }
             return;
           }
         }
       } catch (err) {
-        console.log('No saved data found for date, resetting sheet');
+        console.log('Error fetching sheet for date:', selectedDate);
       }
+
+      // If no data exists for past date, populate standard 10 blank shifts
       setShifts(createInitial10Shifts());
       setCashInPossession(emptyDenominations());
       setCashToBank(emptyDenominations());
     };
 
-    fetchEarningData();
+    loadSheetData();
   }, [selectedDate]);
 
-  // Handle Input Changes inside Shift Grid
+  // Update Input Fields
   const handleShiftChange = (index: number, field: keyof ISiftEarning, value: any) => {
     const updated = [...shifts];
-    const isNum = typeof createDefaultShiftRow(1, 1)[field] === 'number';
+    const dummyRow = createDefaultShiftRow(1, 1);
+    const isNum = typeof dummyRow[field] === 'number';
     updated[index] = {
       ...updated[index],
       [field]: isNum ? (value === '' ? 0 : Number(value) || 0) : value,
@@ -113,7 +151,16 @@ export default function EarningDashboard() {
     setShifts([...shifts, newRow]);
   };
 
-  // Row AFC Total Calculation
+  // Delete Row (Allowed for rows beyond initial 10)
+  const handleDeleteRow = (index: number) => {
+    if (index < 10) {
+      alert('Default 10 TOM shifts cannot be removed.');
+      return;
+    }
+    setShifts(shifts.filter((_, i) => i !== index));
+  };
+
+  // Calculate Row Total AFC Earning
   const getRowAfcTotal = (r: ISiftEarning) => {
     const qrAmt = r.qrSaleAmtTom + r.qrSaleAmtTvm + r.paidExitAmt - r.qrRefundAmt - r.qrCancelAmt;
     const cscAmt = r.cscSaleAmt + r.cscAddValueAmtTom + r.cscAddValueAmtTvm +
@@ -122,7 +169,7 @@ export default function EarningDashboard() {
     return qrAmt + cscAmt + surchargeAmt;
   };
 
-  // Column Totals
+  // Calculate Totals Across All Rows
   const totals = useMemo(() => {
     return shifts.reduce(
       (acc, r) => {
@@ -138,6 +185,36 @@ export default function EarningDashboard() {
 
   const totalPossessionCash = calcDenomTotal(cashInPossession);
   const totalBankCash = calcDenomTotal(cashToBank);
+  const todayCashOnHand = previousDayCash + totals.totalAfc + totals.totalMisc - totalBankCash;
+
+  // Save Complete EOD Earning Register
+  const handleSaveSheet = async () => {
+    const payload = {
+      stationName,
+      date: selectedDate,
+      compiledBy: compilerName,
+      shifts,
+      previousDayCash,
+      todayCashOnHand,
+      cashToBank: totalBankCash,
+      cashInPossessionDenominations: cashInPossession,
+      cashToBankDenominations: cashToBank,
+      isCompiled: true,
+    };
+
+    try {
+      const res = await fetch('/api/earning', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        alert(`Earning sheet for ${selectedDate} saved successfully!`);
+      }
+    } catch (err) {
+      alert('Failed to save earning sheet.');
+    }
+  };
 
   return (
     <div className="w-full bg-slate-100 p-2 font-sans text-xs">
@@ -148,9 +225,9 @@ export default function EarningDashboard() {
       `}</style>
 
       {/* HEADER BAR */}
-      <div className="bg-[#800000] text-white p-3 rounded-t-md flex flex-wrap justify-between items-center gap-2 mb-2">
+      <div className="bg-[#800000] text-white p-3 rounded-t-md flex flex-wrap justify-between items-center gap-2 mb-2 shadow">
         <div className="flex items-center space-x-2">
-          <span className="font-bold">Station:</span>
+          <span className="font-bold">Station Name:</span>
           <input
             type="text"
             value={stationName}
@@ -165,16 +242,16 @@ export default function EarningDashboard() {
 
         <div className="flex items-center space-x-3">
           <div>
-            <span className="font-bold">Date: </span>
+            <span className="font-bold">Select Date: </span>
             <input
               type="date"
               value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}
-              className="bg-red-900 border border-red-400 px-2 py-0.5 rounded text-white font-semibold"
+              className="bg-red-900 border border-red-400 px-2 py-0.5 rounded text-white font-semibold cursor-pointer"
             />
           </div>
           <div>
-            <span className="font-bold">Compiler: </span>
+            <span className="font-bold">Compiled By: </span>
             <input
               type="text"
               value={compilerName}
@@ -185,26 +262,45 @@ export default function EarningDashboard() {
         </div>
       </div>
 
+      {/* SUMMARY BANNER */}
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 mb-2">
+        <div className="bg-amber-100 border border-amber-300 p-2 rounded text-center">
+          <span className="text-gray-600 font-bold block text-[11px]">PREVIOUS DAY CASH HANDOVER</span>
+          <span className="text-sm font-bold text-amber-900 font-mono">₹{previousDayCash.toLocaleString('en-IN')}</span>
+        </div>
+        <div className="bg-emerald-100 border border-emerald-300 p-2 rounded text-center">
+          <span className="text-gray-600 font-bold block text-[11px]">TOTAL AFC COLLECTION</span>
+          <span className="text-sm font-bold text-emerald-900 font-mono">₹{totals.totalAfc.toLocaleString('en-IN')}</span>
+        </div>
+        <div className="bg-blue-100 border border-blue-300 p-2 rounded text-center">
+          <span className="text-gray-600 font-bold block text-[11px]">TOTAL CASH TO BANK</span>
+          <span className="text-sm font-bold text-blue-900 font-mono">₹{totalBankCash.toLocaleString('en-IN')}</span>
+        </div>
+        <div className="bg-purple-100 border border-purple-300 p-2 rounded text-center">
+          <span className="text-gray-600 font-bold block text-[11px]">CLOSING CASH ON HAND</span>
+          <span className="text-sm font-bold text-purple-900 font-mono">₹{todayCashOnHand.toLocaleString('en-IN')}</span>
+        </div>
+      </div>
+
       {/* DROPDOWN ROW ADD BAR */}
       <div className="mb-2 bg-white p-2 border border-gray-300 rounded shadow-sm flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <span className="font-bold text-gray-700">Add Shift Row:</span>
-          <select value={selTom} onChange={(e) => setSelTom(e.target.value)} className="border p-1 rounded font-semibold">
+          <select value={selTom} onChange={(e) => setSelTom(e.target.value)} className="border p-1 rounded font-semibold bg-gray-50">
             {Array.from({ length: 10 }, (_, i) => (
               <option key={i + 1} value={i + 1}>TOM {i + 1}</option>
             ))}
           </select>
 
-          <select value={selShift} onChange={(e) => setSelShift(e.target.value)} className="border p-1 rounded font-semibold">
+          <select value={selShift} onChange={(e) => setSelShift(e.target.value)} className="border p-1 rounded font-semibold bg-gray-50">
             <option value="1">Shift 1</option>
             <option value="2">Shift 2</option>
             <option value="3">Shift 3</option>
           </select>
 
-          <select value={selTiming} onChange={(e) => setSelTiming(e.target.value)} className="border p-1 rounded font-semibold">
+          <select value={selTiming} onChange={(e) => setSelTiming(e.target.value)} className="border p-1 rounded font-semibold bg-gray-50">
             <option value="06:00 - 14:00">06:00 - 14:00</option>
-            <option value="14:00 - 22:00">14:00 - 22:00</option>
-            <option value="22:00 - 06:00">22:00 - 06:00</option>
+        
           </select>
 
           <button
@@ -215,14 +311,17 @@ export default function EarningDashboard() {
           </button>
         </div>
 
-        <div className="font-bold text-gray-600">
-          Total Shifts: {shifts.length}
-        </div>
+        <button
+          onClick={handleSaveSheet}
+          className="bg-red-800 hover:bg-red-900 text-white font-bold px-4 py-1.5 rounded shadow text-xs transition"
+        >
+          SAVE / SUBMIT EOD REGISTER
+        </button>
       </div>
 
-      {/* FIXED METRIC TABLE */}
-      <div className="overflow-x-auto border border-gray-500 bg-white shadow max-h-[60vh] mb-4">
-        <table className="table-fixed border-collapse min-w-max w-max">
+      {/* MAIN DATA TABLE */}
+      <div className="overflow-x-auto border border-gray-500 bg-white shadow max-h-[55vh] mb-3">
+        <table className="table-fixed border-collapse min-w-max w-max select-none">
           <thead>
             <tr className="bg-[#800000] text-white font-bold text-center">
               <th colSpan={4} className="border border-gray-600 p-1 w-80">COUNTER METADATA</th>
@@ -231,6 +330,7 @@ export default function EarningDashboard() {
               <th colSpan={4} className="border border-gray-600 p-1 bg-red-700">SURCHARGES</th>
               <th colSpan={4} className="border border-gray-600 p-1 bg-purple-700">CASHLESS EARNING</th>
               <th rowSpan={2} className="border border-gray-600 p-1 bg-amber-500 text-black w-24">TOTAL AFC EARNING</th>
+              <th rowSpan={2} className="border border-gray-600 p-1 bg-gray-400 w-10">ACT</th>
             </tr>
             <tr className="bg-gray-200 text-black text-[10px] font-semibold text-center border-b border-gray-500">
               <th className="border p-1 w-14">TOM</th>
@@ -269,14 +369,14 @@ export default function EarningDashboard() {
             {shifts.map((row, idx) => {
               const rowAfc = getRowAfcTotal(row);
               return (
-                <tr key={idx} className="hover:bg-blue-50">
+                <tr key={idx} className="hover:bg-blue-50 border-b border-gray-300">
                   <td className="border p-1 text-center font-bold bg-gray-50">TOM {row.counterNumber}</td>
                   <td className="border p-1 text-center font-semibold bg-gray-50">Shift {row.shiftNumber}</td>
                   <td className="border p-1 text-center font-mono text-[10px] bg-gray-50">{row.shiftTiming}</td>
                   <td className="border p-0">
                     <input
                       type="text"
-                      placeholder="Operator"
+                      placeholder="Operator Name"
                       value={row.operatorName}
                       onChange={(e) => handleShiftChange(idx, 'operatorName', e.target.value)}
                       className="w-full h-7 px-1 text-left bg-transparent focus:outline-none"
@@ -316,6 +416,14 @@ export default function EarningDashboard() {
                   <td className="border p-1 text-right font-bold text-amber-900 bg-amber-200 font-mono w-24">
                     ₹{rowAfc.toLocaleString('en-IN')}
                   </td>
+
+                  <td className="border p-0 text-center bg-gray-50">
+                    {idx >= 10 ? (
+                      <button onClick={() => handleDeleteRow(idx)} className="text-red-600 font-bold px-1">×</button>
+                    ) : (
+                      <span className="text-gray-300 select-none">-</span>
+                    )}
+                  </td>
                 </tr>
               );
             })}
@@ -326,25 +434,24 @@ export default function EarningDashboard() {
               <td className="border p-2 text-right text-sm text-red-900 font-mono">
                 ₹{totals.totalAfc.toLocaleString('en-IN')}
               </td>
+              <td className="border p-1 bg-amber-300"></td>
             </tr>
           </tfoot>
         </table>
       </div>
 
-      {/* CASH IN POSSESSION & CASH TO BANK DENOMINATION PANELS */}
+      {/* CASH IN POSSESSION & CASH TO BANK DENOMINATIONS */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Cash In Possession */}
         <DenominationBox
-          title="CASH IN POSSESSION (CURRENT MANUAL ENTRY)"
+          title="CASH IN POSSESSION (MANUAL PHYSICAL COUNT)"
           denom={cashInPossession}
           setDenom={setCashInPossession}
           total={totalPossessionCash}
           bgColor="bg-emerald-50 border-emerald-400 text-emerald-900"
         />
 
-        {/* Cash To Bank */}
         <DenominationBox
-          title="CASH TO BANK (DEPOSITED AT END OF DAY)"
+          title="CASH TO BANK DENOMINATIONS (EOD DEPOSIT)"
           denom={cashToBank}
           setDenom={setCashToBank}
           total={totalBankCash}
@@ -371,32 +478,32 @@ function Cell({ value, onChange, width }: { value: number; onChange: (v: string)
 
 function DenominationBox({ title, denom, setDenom, total, bgColor }: any) {
   const notes = [
-    { label: '₹500', key: 'd500' }, { label: '₹200', key: 'd200' },
-    { label: '₹100', key: 'd100' }, { label: '₹50', key: 'd50' },
-    { label: '₹20', key: 'd20' },   { label: '₹10', key: 'd10' },
-    { label: '₹10 Coin', key: 'c10' }, { label: '₹5 Coin', key: 'c5' },
-    { label: '₹2 Coin', key: 'c2' },   { label: '₹1 Coin', key: 'c1' },
+    { label: '₹500 Notes', key: 'd500' }, { label: '₹200 Notes', key: 'd200' },
+    { label: '₹100 Notes', key: 'd100' }, { label: '₹50 Notes', key: 'd50' },
+    { label: '₹20 Notes', key: 'd20' },   { label: '₹10 Notes', key: 'd10' },
+    { label: '₹10 Coins', key: 'c10' }, { label: '₹5 Coins', key: 'c5' },
+    { label: '₹2 Coins', key: 'c2' },   { label: '₹1 Coins', key: 'c1' },
   ];
 
   return (
     <div className={`p-3 rounded border shadow-sm ${bgColor}`}>
-      <h3 className="font-bold border-b pb-1 mb-2">{title}</h3>
+      <h3 className="font-bold border-b pb-1 mb-2 text-xs">{title}</h3>
       <div className="grid grid-cols-2 gap-2 text-xs">
         {notes.map((n) => (
           <div key={n.key} className="flex justify-between items-center bg-white p-1 rounded border">
-            <span className="font-semibold">{n.label}:</span>
+            <span className="font-semibold text-gray-700">{n.label}:</span>
             <input
               type="number"
               placeholder="0"
               value={denom[n.key] || ''}
               onChange={(e) => setDenom({ ...denom, [n.key]: Number(e.target.value) || 0 })}
-              className="w-16 text-right border rounded px-1 font-mono"
+              className="w-16 text-right border rounded px-1 font-mono text-xs"
             />
           </div>
         ))}
       </div>
-      <div className="mt-2 text-right font-bold text-sm">
-        Total Cash Amount: ₹{total.toLocaleString('en-IN')}
+      <div className="mt-2 text-right font-bold text-sm border-t pt-1">
+        Total Cash: ₹{total.toLocaleString('en-IN')}
       </div>
     </div>
   );
