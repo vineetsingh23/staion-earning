@@ -1,196 +1,156 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import type { ISiftEarning, IDenomination } from '../models/DailyEarning';
 
-export interface RowData {
-  id: number;
-  tomNo: string;
-  shiftNo: string;
-  shiftTiming: string;
-  operatorName: string;
-  // Paper QR Sales
-  sjtQty: number;
-  sjtAmt: number;
-  paidExitQty: number;
-  paidExitAmt: number;
-  qrRefundQty: number;
-  qrRefundAmt: number;
-  qrCancelQty: number;
-  qrCancelAmt: number;
-  // CSC Smart Card Sales
-  sv2Qty: number;
-  sv1Qty: number;
-  cscAmt: number;
-  addValueQty: number;
-  addValueAmt: number;
-  ncmcAddValueQty: number;
-  ncmcAddValueAmt: number;
-  cscRefundQty: number;
-  cscRefundAmt: number;
-  // Surcharges
-  surchargeCashQty: number;
-  surchargeCashAmt: number;
-  surchargeNcmcQty: number;
-  surchargeNcmcAmt: number;
-  // Adjustments
-  amtNotTaken: number;
-  penaltyAmt: number;
-}
-
-// Predefined 10 Default Shifts (TOM 1 to TOM 5, 2 Shifts each)
-const initial10Rows: RowData[] = Array.from({ length: 10 }, (_, i) => {
-  const tomIndex = Math.floor(i / 2) + 1;
-  const shiftIndex = (i % 2) + 1;
-  return {
-    id: i + 1,
-    tomNo: `TOM ${tomIndex}`,
-    shiftNo: `Shift ${shiftIndex}`,
-    shiftTiming: shiftIndex === 1 ? '06:00 - 14:00' : '14:00 - 22:00',
-    operatorName: '',
-    sjtQty: 0, sjtAmt: 0,
-    paidExitQty: 0, paidExitAmt: 0,
-    qrRefundQty: 0, qrRefundAmt: 0,
-    qrCancelQty: 0, qrCancelAmt: 0,
-    sv2Qty: 0, sv1Qty: 0, cscAmt: 0,
-    addValueQty: 0, addValueAmt: 0,
-    ncmcAddValueQty: 0, ncmcAddValueAmt: 0,
-    cscRefundQty: 0, cscRefundAmt: 0,
-    surchargeCashQty: 0, surchargeCashAmt: 0,
-    surchargeNcmcQty: 0, surchargeNcmcAmt: 0,
-    amtNotTaken: 0, penaltyAmt: 0,
-  };
+const emptyDenominations = (): IDenomination => ({
+  d500: 0, d200: 0, d100: 0, d50: 0, d20: 0, d10: 0,
+  c10: 0, c5: 0, c2: 0, c1: 0,
 });
 
-// Dropdown Predefined Options
-const TOM_OPTIONS = Array.from({ length: 10 }, (_, i) => `TOM ${i + 1}`);
-const SHIFT_OPTIONS = ['Shift 1', 'Shift 2', 'Shift 3'];
-const TIMING_OPTIONS = ['06:00 - 14:00', '14:00 - 22:00', '22:00 - 06:00'];
+const createDefaultShiftRow = (counter: number, shift: number): ISiftEarning => ({
+  counterNumber: counter,
+  shiftNumber: shift,
+  shiftTiming: shift === 1 ? '06:00 - 14:00' : '14:00 - 22:00',
+  operatorName: '', operatorId: '',
+  qrSaleCountTom: 0, qrSaleAmtTom: 0, qrSaleCountTvm: 0, qrSaleAmtTvm: 0,
+  paidExitCount: 0, paidExitAmt: 0, qrRefundCount: 0, qrRefundAmt: 0,
+  qrCancelCount: 0, qrCancelAmt: 0,
+  cscSaleSV2: 0, cscSaleT1: 0, cscSaleAmt: 0,
+  cscAddValueCountTom: 0, cscAddValueAmtTom: 0, cscAddValueCountTvm: 0, cscAddValueAmtTvm: 0,
+  ncmcAddValueCountTom: 0, ncmcAddValueAmtTom: 0, ncmcAddValueCountTvm: 0, ncmcAddValueAmtTvm: 0,
+  cscRefundCount: 0, cscRefundAmt: 0,
+  surchargeCashCount: 0, surchargeCashAmt: 0, surchargePurseCount: 0, surchargePurseAmt: 0,
+  surchargeNcmcCount: 0, surchargeNcmcAmt: 0, surchargeNcmcPurseCount: 0, surchargeNcmcPurseAmt: 0,
+  eibByTom: 0, mrOkCscCount: 0, mrOkCscAmt: 0, mrOkUrcCount: 0, mrOkUrcAmt: 0,
+  mrOkUrcTourCount: 0, mrOkUrcTourAmt: 0, penaltyCashCount: 0, penaltyCashAmt: 0,
+  penaltyHhtCount: 0, penaltyHhtAmt: 0, penaltyPurseCount: 0, penaltyPurseAmt: 0, miscEarning: 0,
+  hdfcPos: 0, upiTom: 0, upiTvm: 0, outSourceEarning: 0,
+  afcOs: 0, miscOs: 0, tvmOs: 0, afcOsPaid: 0, miscOsPaid: 0, tvmOsPaid: 0,
+  denominations: emptyDenominations(),
+  totalAfcEarning: 0, totalCashDepositedByOperator: 0, totalEarning: 0,
+});
+
+// Initial 10 Predefined Rows
+const createInitial10Shifts = (): ISiftEarning[] => {
+  const shifts: ISiftEarning[] = [];
+  for (let c = 1; c <= 5; c++) {
+    shifts.push(createDefaultShiftRow(c, 1));
+    shifts.push(createDefaultShiftRow(c, 2));
+  }
+  return shifts;
+};
+
+const calcDenomTotal = (d: IDenomination) =>
+  d.d500 * 500 + d.d200 * 200 + d.d100 * 100 + d.d50 * 50 + d.d20 * 20 +
+  d.d10 * 10 + d.c10 * 10 + d.c5 * 5 + d.c2 * 2 + d.c1 * 1;
 
 export default function EarningDashboard() {
-  const [data, setData] = useState<RowData[]>(initial10Rows);
+  const todayStr = new Date().toISOString().split('T')[0];
+  const [selectedDate, setSelectedDate] = useState<string>(todayStr);
   const [stationName, setStationName] = useState('Sector 62 Noida');
-  const [compilerName, setCompilerName] = useState('SAMEER MAHESHWARI');
-  const [sheetDate, setSheetDate] = useState('2026-10-08');
+  const [compilerName, setCompilerName] = useState('SAMEER MAHESHWARI (11744)');
+  const [shifts, setShifts] = useState<ISiftEarning[]>(createInitial10Shifts());
 
-  // State for Row Creator Dropdowns
-  const [selectedTom, setSelectedTom] = useState('TOM 6');
-  const [selectedShift, setSelectedShift] = useState('Shift 1');
-  const [selectedTiming, setSelectedTiming] = useState('06:00 - 14:00');
+  // Cash Management
+  const [previousDayCash, setPreviousDayCash] = useState<number>(207902);
+  const [cashInPossession, setCashInPossession] = useState<IDenomination>(emptyDenominations());
+  const [cashToBank, setCashToBank] = useState<IDenomination>(emptyDenominations());
 
-  // Handle Cell Value Changes
-  const handleCellChange = (
-    index: number,
-    field: keyof RowData,
-    value: string
-  ) => {
-    const updated = [...data];
-    const isNumberField = typeof initial10Rows[0][field] === 'number';
+  // Dropdown Row Add state
+  const [selTom, setSelTom] = useState('6');
+  const [selShift, setSelShift] = useState('1');
+  const [selTiming, setSelTiming] = useState('06:00 - 14:00');
+
+  // Load Earning Data based on Selected Date
+  useEffect(() => {
+    const fetchEarningData = async () => {
+      const today = new Date().toISOString().split('T')[0];
+      if (selectedDate > today) {
+        // Future Date: Render clean blank sheet
+        setShifts(createInitial10Shifts());
+        setCashInPossession(emptyDenominations());
+        setCashToBank(emptyDenominations());
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/earning?date=${selectedDate}`);
+        if (res.ok) {
+          const doc = await res.json();
+          if (doc) {
+            setShifts(doc.shifts || createInitial10Shifts());
+            setPreviousDayCash(doc.previousDayCash || 0);
+            setCashInPossession(doc.cashInPossessionDenominations || emptyDenominations());
+            setCashToBank(doc.cashToBankDenominations || emptyDenominations());
+            return;
+          }
+        }
+      } catch (err) {
+        console.log('No saved data found for date, resetting sheet');
+      }
+      setShifts(createInitial10Shifts());
+      setCashInPossession(emptyDenominations());
+      setCashToBank(emptyDenominations());
+    };
+
+    fetchEarningData();
+  }, [selectedDate]);
+
+  // Handle Input Changes inside Shift Grid
+  const handleShiftChange = (index: number, field: keyof ISiftEarning, value: any) => {
+    const updated = [...shifts];
+    const isNum = typeof createDefaultShiftRow(1, 1)[field] === 'number';
     updated[index] = {
       ...updated[index],
-      [field]: isNumberField ? (value === '' ? 0 : Number(value) || 0) : value,
+      [field]: isNum ? (value === '' ? 0 : Number(value) || 0) : value,
     };
-    setData(updated);
+    setShifts(updated);
   };
 
-  // Add Dynamic Row Using Selected Dropdown Values
+  // Add Dynamic Row via Dropdown Selection
   const handleAddCustomRow = () => {
-    const nextId = data.length > 0 ? Math.max(...data.map((r) => r.id)) + 1 : 1;
-
-    const newRow: RowData = {
-      id: nextId,
-      tomNo: selectedTom,
-      shiftNo: selectedShift,
-      shiftTiming: selectedTiming,
-      operatorName: '',
-      sjtQty: 0, sjtAmt: 0,
-      paidExitQty: 0, paidExitAmt: 0,
-      qrRefundQty: 0, qrRefundAmt: 0,
-      qrCancelQty: 0, qrCancelAmt: 0,
-      sv2Qty: 0, sv1Qty: 0, cscAmt: 0,
-      addValueQty: 0, addValueAmt: 0,
-      ncmcAddValueQty: 0, ncmcAddValueAmt: 0,
-      cscRefundQty: 0, cscRefundAmt: 0,
-      surchargeCashQty: 0, surchargeCashAmt: 0,
-      surchargeNcmcQty: 0, surchargeNcmcAmt: 0,
-      amtNotTaken: 0, penaltyAmt: 0,
-    };
-
-    setData([...data, newRow]);
+    const newRow: ISiftEarning = createDefaultShiftRow(Number(selTom), Number(selShift));
+    newRow.shiftTiming = selTiming;
+    setShifts([...shifts, newRow]);
   };
 
-  // Delete dynamic row (only allowed for rows beyond initial 10)
-  const handleDeleteRow = (index: number) => {
-    if (index < 10) {
-      alert('Predefined initial 10 TOM shifts cannot be deleted.');
-      return;
-    }
-    setData(data.filter((_, i) => i !== index));
+  // Row AFC Total Calculation
+  const getRowAfcTotal = (r: ISiftEarning) => {
+    const qrAmt = r.qrSaleAmtTom + r.qrSaleAmtTvm + r.paidExitAmt - r.qrRefundAmt - r.qrCancelAmt;
+    const cscAmt = r.cscSaleAmt + r.cscAddValueAmtTom + r.cscAddValueAmtTvm +
+      r.ncmcAddValueAmtTom + r.ncmcAddValueAmtTvm - r.cscRefundAmt;
+    const surchargeAmt = r.surchargeCashAmt + r.surchargePurseAmt + r.surchargeNcmcAmt + r.surchargeNcmcPurseAmt;
+    return qrAmt + cscAmt + surchargeAmt;
   };
 
-  // Calculate Total AFC Earning per row
-  const getRowTotal = (r: RowData) => {
-    const qrTotal = r.sjtAmt + r.paidExitAmt - r.qrRefundAmt - r.qrCancelAmt;
-    const cscTotal = r.cscAmt + r.addValueAmt + r.ncmcAddValueAmt - r.cscRefundAmt;
-    const surchargeTotal = r.surchargeCashAmt + r.surchargeNcmcAmt;
-    return qrTotal + cscTotal + surchargeTotal + r.penaltyAmt - r.amtNotTaken;
-  };
-
-  // Summary Totals calculation across all rows
+  // Column Totals
   const totals = useMemo(() => {
-    return data.reduce(
+    return shifts.reduce(
       (acc, r) => {
-        acc.sjtQty += r.sjtQty;
-        acc.sjtAmt += r.sjtAmt;
-        acc.paidExitQty += r.paidExitQty;
-        acc.paidExitAmt += r.paidExitAmt;
-        acc.qrRefundQty += r.qrRefundQty;
-        acc.qrRefundAmt += r.qrRefundAmt;
-        acc.qrCancelQty += r.qrCancelQty;
-        acc.qrCancelAmt += r.qrCancelAmt;
-        acc.sv2Qty += r.sv2Qty;
-        acc.sv1Qty += r.sv1Qty;
-        acc.cscAmt += r.cscAmt;
-        acc.addValueQty += r.addValueQty;
-        acc.addValueAmt += r.addValueAmt;
-        acc.ncmcAddValueQty += r.ncmcAddValueQty;
-        acc.ncmcAddValueAmt += r.ncmcAddValueAmt;
-        acc.cscRefundQty += r.cscRefundQty;
-        acc.cscRefundAmt += r.cscRefundAmt;
-        acc.surchargeCashQty += r.surchargeCashQty;
-        acc.surchargeCashAmt += r.surchargeCashAmt;
-        acc.surchargeNcmcQty += r.surchargeNcmcQty;
-        acc.surchargeNcmcAmt += r.surchargeNcmcAmt;
-        acc.amtNotTaken += r.amtNotTaken;
-        acc.penaltyAmt += r.penaltyAmt;
-        acc.totalAfcEarning += getRowTotal(r);
+        const afc = getRowAfcTotal(r);
+        acc.totalAfc += afc;
+        acc.totalMisc += r.miscEarning;
+        acc.totalCashless += r.hdfcPos + r.upiTom + r.upiTvm + r.outSourceEarning;
         return acc;
       },
-      {
-        sjtQty: 0, sjtAmt: 0, paidExitQty: 0, paidExitAmt: 0,
-        qrRefundQty: 0, qrRefundAmt: 0, qrCancelQty: 0, qrCancelAmt: 0,
-        sv2Qty: 0, sv1Qty: 0, cscAmt: 0, addValueQty: 0, addValueAmt: 0,
-        ncmcAddValueQty: 0, ncmcAddValueAmt: 0, cscRefundQty: 0, cscRefundAmt: 0,
-        surchargeCashQty: 0, surchargeCashAmt: 0, surchargeNcmcQty: 0, surchargeNcmcAmt: 0,
-        amtNotTaken: 0, penaltyAmt: 0, totalAfcEarning: 0,
-      }
+      { totalAfc: 0, totalMisc: 0, totalCashless: 0 }
     );
-  }, [data]);
+  }, [shifts]);
+
+  const totalPossessionCash = calcDenomTotal(cashInPossession);
+  const totalBankCash = calcDenomTotal(cashToBank);
 
   return (
     <div className="w-full bg-slate-100 p-2 font-sans text-xs">
       <style>{`
         input[type='number']::-webkit-inner-spin-button,
-        input[type='number']::-webkit-outer-spin-button {
-          -webkit-appearance: none;
-          margin: 0;
-        }
-        input[type='number'] {
-          -moz-appearance: textfield;
-        }
+        input[type='number']::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        input[type='number'] { -moz-appearance: textfield; }
       `}</style>
 
-      {/* HEADER SECTION */}
-      <div className="bg-[#800000] text-white p-3 rounded-t-md shadow flex flex-wrap justify-between items-center gap-2 mb-2">
+      {/* HEADER BAR */}
+      <div className="bg-[#800000] text-white p-3 rounded-t-md flex flex-wrap justify-between items-center gap-2 mb-2">
         <div className="flex items-center space-x-2">
-          <span className="font-bold">Station Name:</span>
+          <span className="font-bold">Station:</span>
           <input
             type="text"
             value={stationName}
@@ -198,305 +158,246 @@ export default function EarningDashboard() {
             className="bg-red-900 border border-red-400 px-2 py-0.5 rounded text-white font-semibold"
           />
         </div>
+
         <div className="text-center font-bold text-sm tracking-wide">
-          DMRC STATION DAILY EARNING SHEET
+          DMRC DAILY STATION EARNING REGISTER
         </div>
+
         <div className="flex items-center space-x-3">
           <div>
             <span className="font-bold">Date: </span>
             <input
               type="date"
-              value={sheetDate}
-              onChange={(e) => setSheetDate(e.target.value)}
-              className="bg-red-900 border border-red-400 px-2 py-0.5 rounded text-white"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              className="bg-red-900 border border-red-400 px-2 py-0.5 rounded text-white font-semibold"
             />
           </div>
           <div>
-            <span className="font-bold">Compiled By: </span>
+            <span className="font-bold">Compiler: </span>
             <input
               type="text"
               value={compilerName}
               onChange={(e) => setCompilerName(e.target.value)}
-              className="bg-red-900 border border-red-400 px-2 py-0.5 rounded text-white font-semibold"
+              className="bg-red-900 border border-red-400 px-2 py-0.5 rounded text-white"
             />
           </div>
         </div>
       </div>
 
-      {/* DROPDOWN ROW CREATOR BAR */}
-      <div className="mb-2 bg-white p-2 border border-gray-300 shadow-sm rounded flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2 flex-wrap">
+      {/* DROPDOWN ROW ADD BAR */}
+      <div className="mb-2 bg-white p-2 border border-gray-300 rounded shadow-sm flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
           <span className="font-bold text-gray-700">Add Shift Row:</span>
-          
-          {/* TOM No Dropdown */}
-          <select
-            value={selectedTom}
-            onChange={(e) => setSelectedTom(e.target.value)}
-            className="border border-gray-300 rounded px-2 py-1 bg-gray-50 font-semibold focus:outline-none focus:border-red-700"
-          >
-            {TOM_OPTIONS.map((tom) => (
-              <option key={tom} value={tom}>{tom}</option>
+          <select value={selTom} onChange={(e) => setSelTom(e.target.value)} className="border p-1 rounded font-semibold">
+            {Array.from({ length: 10 }, (_, i) => (
+              <option key={i + 1} value={i + 1}>TOM {i + 1}</option>
             ))}
           </select>
 
-          {/* Shift No Dropdown */}
-          <select
-            value={selectedShift}
-            onChange={(e) => setSelectedShift(e.target.value)}
-            className="border border-gray-300 rounded px-2 py-1 bg-gray-50 font-semibold focus:outline-none focus:border-red-700"
-          >
-            {SHIFT_OPTIONS.map((shift) => (
-              <option key={shift} value={shift}>{shift}</option>
-            ))}
+          <select value={selShift} onChange={(e) => setSelShift(e.target.value)} className="border p-1 rounded font-semibold">
+            <option value="1">Shift 1</option>
+            <option value="2">Shift 2</option>
+            <option value="3">Shift 3</option>
           </select>
 
-          {/* Shift Timing Dropdown */}
-          <select
-            value={selectedTiming}
-            onChange={(e) => setSelectedTiming(e.target.value)}
-            className="border border-gray-300 rounded px-2 py-1 bg-gray-50 font-semibold focus:outline-none focus:border-red-700"
-          >
-            {TIMING_OPTIONS.map((time) => (
-              <option key={time} value={time}>{time}</option>
-            ))}
+          <select value={selTiming} onChange={(e) => setSelTiming(e.target.value)} className="border p-1 rounded font-semibold">
+            <option value="06:00 - 14:00">06:00 - 14:00</option>
+            <option value="14:00 - 22:00">14:00 - 22:00</option>
+            <option value="22:00 - 06:00">22:00 - 06:00</option>
           </select>
 
           <button
             onClick={handleAddCustomRow}
-            className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold px-3 py-1 rounded text-xs flex items-center gap-1 transition shadow-sm ml-1"
+            className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold px-3 py-1 rounded text-xs transition"
           >
             + Add Row
           </button>
         </div>
 
-        <span className="text-gray-600 font-semibold">
-          Total Shifts: {data.length} (10 Default + {data.length - 10} Custom)
-        </span>
+        <div className="font-bold text-gray-600">
+          Total Shifts: {shifts.length}
+        </div>
       </div>
 
-      {/* TABLE CONTAINER */}
-      <div className="overflow-x-auto border border-gray-500 bg-white shadow-inner max-h-[75vh]">
-        <table className="table-fixed border-collapse min-w-max w-max select-none">
+      {/* FIXED METRIC TABLE */}
+      <div className="overflow-x-auto border border-gray-500 bg-white shadow max-h-[60vh] mb-4">
+        <table className="table-fixed border-collapse min-w-max w-max">
           <thead>
-            {/* Level 1 Header */}
-            <tr className="bg-[#800000] text-white font-bold text-center border-b border-gray-600">
-              <th colSpan={4} className="border border-gray-600 p-1 w-80">SHIFT METADATA</th>
-              <th colSpan={8} className="border border-gray-600 p-1 bg-emerald-700">PAPER QR SALES</th>
-              <th colSpan={9} className="border border-gray-600 p-1 bg-teal-700">CSC SMART CARD SALES</th>
+            <tr className="bg-[#800000] text-white font-bold text-center">
+              <th colSpan={4} className="border border-gray-600 p-1 w-80">COUNTER METADATA</th>
+              <th colSpan={6} className="border border-gray-600 p-1 bg-emerald-700">PAPER QR SALES</th>
+              <th colSpan={8} className="border border-gray-600 p-1 bg-teal-700">CSC SMART CARD SALES</th>
               <th colSpan={4} className="border border-gray-600 p-1 bg-red-700">SURCHARGES</th>
-              <th rowSpan={3} className="border border-gray-600 p-1 bg-amber-500 text-black w-24">TOTAL AFC EARNING</th>
-              <th colSpan={2} className="border border-gray-600 p-1 bg-yellow-600 text-black">ADJUSTMENTS</th>
-              <th rowSpan={3} className="border border-gray-600 p-1 bg-gray-400 w-10">ACT</th>
+              <th colSpan={4} className="border border-gray-600 p-1 bg-purple-700">CASHLESS EARNING</th>
+              <th rowSpan={2} className="border border-gray-600 p-1 bg-amber-500 text-black w-24">TOTAL AFC EARNING</th>
             </tr>
+            <tr className="bg-gray-200 text-black text-[10px] font-semibold text-center border-b border-gray-500">
+              <th className="border p-1 w-14">TOM</th>
+              <th className="border p-1 w-14">Shift</th>
+              <th className="border p-1 w-24">Timing</th>
+              <th className="border p-1 w-28">Operator Name</th>
 
-            {/* Level 2 Sub-Category Header */}
-            <tr className="bg-gray-200 text-black text-[11px] font-semibold text-center border-b border-gray-600">
-              <th className="border border-gray-400 p-1 w-16">TOM No</th>
-              <th className="border border-gray-400 p-1 w-16">Shift No</th>
-              <th className="border border-gray-400 p-1 w-24">Shift Timing</th>
-              <th className="border border-gray-400 p-1 w-28">Operator Name</th>
+              <th className="border p-1 bg-emerald-100 w-16">TOM QR</th>
+              <th className="border p-1 bg-emerald-100 w-16">TVM QR</th>
+              <th className="border p-1 bg-emerald-100 w-16">Paid Exit</th>
+              <th className="border p-1 bg-emerald-100 w-16">Refund</th>
+              <th className="border p-1 bg-emerald-100 w-16">Cancel</th>
+              <th className="border p-1 bg-emerald-100 w-16">QR Amt</th>
 
-              {/* QR */}
-              <th colSpan={2} className="border border-gray-400 p-1 bg-emerald-100">Paper QR</th>
-              <th colSpan={2} className="border border-gray-400 p-1 bg-emerald-100">Paid Exit</th>
-              <th colSpan={2} className="border border-gray-400 p-1 bg-emerald-100">Refund</th>
-              <th colSpan={2} className="border border-gray-400 p-1 bg-emerald-100">Cancel</th>
+              <th className="border p-1 bg-teal-100 w-14">SV-2</th>
+              <th className="border p-1 bg-teal-100 w-14">T-1</th>
+              <th className="border p-1 bg-teal-100 w-16">Add TOM</th>
+              <th className="border p-1 bg-teal-100 w-16">Add TVM</th>
+              <th className="border p-1 bg-teal-100 w-16">NCMC TOM</th>
+              <th className="border p-1 bg-teal-100 w-16">NCMC TVM</th>
+              <th className="border p-1 bg-teal-100 w-16">Refund</th>
+              <th className="border p-1 bg-teal-100 w-16">CSC Amt</th>
 
-              {/* CSC */}
-              <th colSpan={3} className="border border-gray-400 p-1 bg-teal-100">Card Issue (SV-2/1)</th>
-              <th colSpan={2} className="border border-gray-400 p-1 bg-teal-100">Add Value</th>
-              <th colSpan={2} className="border border-gray-400 p-1 bg-teal-100">NCMC Top-up</th>
-              <th colSpan={2} className="border border-gray-400 p-1 bg-teal-100">Refund</th>
+              <th className="border p-1 bg-red-100 w-16">Cash</th>
+              <th className="border p-1 bg-red-100 w-16">Purse</th>
+              <th className="border p-1 bg-red-100 w-16">NCMC</th>
+              <th className="border p-1 bg-red-100 w-16">NCMC Purse</th>
 
-              {/* Surcharge */}
-              <th colSpan={2} className="border border-gray-400 p-1 bg-red-100">Cash</th>
-              <th colSpan={2} className="border border-gray-400 p-1 bg-red-100">NCMC</th>
-
-              {/* Adjustments */}
-              <th className="border border-gray-400 p-1 bg-yellow-100 w-20">Amt Not Taken</th>
-              <th className="border border-gray-400 p-1 bg-yellow-100 w-20">Penalty</th>
-            </tr>
-
-            {/* Level 3 Metric Headers */}
-            <tr className="bg-gray-100 text-black text-[10px] font-semibold text-center border-b border-gray-600">
-              <th colSpan={4} className="border border-gray-400 p-0.5">Details</th>
-              {/* QR */}
-              <th className="border border-gray-400 w-12 p-0.5">SJT Qty</th>
-              <th className="border border-gray-400 w-16 p-0.5">Amt</th>
-              <th className="border border-gray-400 w-12 p-0.5">Qty</th>
-              <th className="border border-gray-400 w-16 p-0.5">Amt</th>
-              <th className="border border-gray-400 w-12 p-0.5">Qty</th>
-              <th className="border border-gray-400 w-16 p-0.5">Amt</th>
-              <th className="border border-gray-400 w-12 p-0.5">Qty</th>
-              <th className="border border-gray-400 w-16 p-0.5">Amt</th>
-              {/* CSC */}
-              <th className="border border-gray-400 w-12 p-0.5">SV-2 Qty</th>
-              <th className="border border-gray-400 w-12 p-0.5">SV-1 Qty</th>
-              <th className="border border-gray-400 w-16 p-0.5">Amt</th>
-              <th className="border border-gray-400 w-12 p-0.5">Qty</th>
-              <th className="border border-gray-400 w-16 p-0.5">Amt</th>
-              <th className="border border-gray-400 w-12 p-0.5">Qty</th>
-              <th className="border border-gray-400 w-16 p-0.5">Amt</th>
-              <th className="border border-gray-400 w-12 p-0.5">Qty</th>
-              <th className="border border-gray-400 w-16 p-0.5">Amt</th>
-              {/* Surcharge */}
-              <th className="border border-gray-400 w-12 p-0.5">Qty</th>
-              <th className="border border-gray-400 w-16 p-0.5">Amt</th>
-              <th className="border border-gray-400 w-12 p-0.5">Qty</th>
-              <th className="border border-gray-400 w-16 p-0.5">Amt</th>
-              {/* Adjustments */}
-              <th className="border border-gray-400 w-20 p-0.5">Amt</th>
-              <th className="border border-gray-400 w-20 p-0.5">Amt</th>
+              <th className="border p-1 bg-purple-100 w-16">HDFC POS</th>
+              <th className="border p-1 bg-purple-100 w-16">UPI TOM</th>
+              <th className="border p-1 bg-purple-100 w-16">UPI TVM</th>
+              <th className="border p-1 bg-purple-100 w-16">Outsource</th>
             </tr>
           </thead>
-
           <tbody>
-            {data.map((row, idx) => {
-              const rowTotal = getRowTotal(row);
+            {shifts.map((row, idx) => {
+              const rowAfc = getRowAfcTotal(row);
               return (
-                <tr key={row.id} className="hover:bg-blue-50 border-b border-gray-300">
-                  {/* Inline Editable or Displayed TOM Metadata */}
-                  <td className="border border-gray-400 p-1 text-center font-bold bg-gray-100">{row.tomNo}</td>
-                  <td className="border border-gray-400 p-1 text-center font-semibold bg-gray-100">{row.shiftNo}</td>
-                  <td className="border border-gray-400 p-1 text-center font-mono text-[11px] bg-gray-100">{row.shiftTiming}</td>
-                  <td className="border border-gray-400 p-0">
+                <tr key={idx} className="hover:bg-blue-50">
+                  <td className="border p-1 text-center font-bold bg-gray-50">TOM {row.counterNumber}</td>
+                  <td className="border p-1 text-center font-semibold bg-gray-50">Shift {row.shiftNumber}</td>
+                  <td className="border p-1 text-center font-mono text-[10px] bg-gray-50">{row.shiftTiming}</td>
+                  <td className="border p-0">
                     <input
                       type="text"
-                      placeholder="Operator Name"
+                      placeholder="Operator"
                       value={row.operatorName}
-                      onChange={(e) => handleCellChange(idx, 'operatorName', e.target.value)}
-                      className="w-full h-7 px-1 text-left bg-transparent focus:bg-yellow-100 focus:outline-none"
+                      onChange={(e) => handleShiftChange(idx, 'operatorName', e.target.value)}
+                      className="w-full h-7 px-1 text-left bg-transparent focus:outline-none"
                     />
                   </td>
 
-                  {/* QR Inputs */}
-                  <InputCell value={row.sjtQty} onChange={(v) => handleCellChange(idx, 'sjtQty', v)} width="w-12" />
-                  <InputCell value={row.sjtAmt} onChange={(v) => handleCellChange(idx, 'sjtAmt', v)} width="w-16" isAmount />
-                  <InputCell value={row.paidExitQty} onChange={(v) => handleCellChange(idx, 'paidExitQty', v)} width="w-12" />
-                  <InputCell value={row.paidExitAmt} onChange={(v) => handleCellChange(idx, 'paidExitAmt', v)} width="w-16" isAmount />
-                  <InputCell value={row.qrRefundQty} onChange={(v) => handleCellChange(idx, 'qrRefundQty', v)} width="w-12" />
-                  <InputCell value={row.qrRefundAmt} onChange={(v) => handleCellChange(idx, 'qrRefundAmt', v)} width="w-16" isAmount />
-                  <InputCell value={row.qrCancelQty} onChange={(v) => handleCellChange(idx, 'qrCancelQty', v)} width="w-12" />
-                  <InputCell value={row.qrCancelAmt} onChange={(v) => handleCellChange(idx, 'qrCancelAmt', v)} width="w-16" isAmount />
-
-                  {/* CSC Inputs */}
-                  <InputCell value={row.sv2Qty} onChange={(v) => handleCellChange(idx, 'sv2Qty', v)} width="w-12" />
-                  <InputCell value={row.sv1Qty} onChange={(v) => handleCellChange(idx, 'sv1Qty', v)} width="w-12" />
-                  <InputCell value={row.cscAmt} onChange={(v) => handleCellChange(idx, 'cscAmt', v)} width="w-16" isAmount />
-                  <InputCell value={row.addValueQty} onChange={(v) => handleCellChange(idx, 'addValueQty', v)} width="w-12" />
-                  <InputCell value={row.addValueAmt} onChange={(v) => handleCellChange(idx, 'addValueAmt', v)} width="w-16" isAmount />
-                  <InputCell value={row.ncmcAddValueQty} onChange={(v) => handleCellChange(idx, 'ncmcAddValueQty', v)} width="w-12" />
-                  <InputCell value={row.ncmcAddValueAmt} onChange={(v) => handleCellChange(idx, 'ncmcAddValueAmt', v)} width="w-16" isAmount />
-                  <InputCell value={row.cscRefundQty} onChange={(v) => handleCellChange(idx, 'cscRefundQty', v)} width="w-12" />
-                  <InputCell value={row.cscRefundAmt} onChange={(v) => handleCellChange(idx, 'cscRefundAmt', v)} width="w-16" isAmount />
-
-                  {/* Surcharge Inputs */}
-                  <InputCell value={row.surchargeCashQty} onChange={(v) => handleCellChange(idx, 'surchargeCashQty', v)} width="w-12" />
-                  <InputCell value={row.surchargeCashAmt} onChange={(v) => handleCellChange(idx, 'surchargeCashAmt', v)} width="w-16" isAmount />
-                  <InputCell value={row.surchargeNcmcQty} onChange={(v) => handleCellChange(idx, 'surchargeNcmcQty', v)} width="w-12" />
-                  <InputCell value={row.surchargeNcmcAmt} onChange={(v) => handleCellChange(idx, 'surchargeNcmcAmt', v)} width="w-16" isAmount />
-
-                  {/* Total AFC Earning */}
-                  <td className="border border-gray-400 p-1 text-right font-bold text-amber-900 bg-amber-100 font-mono w-24">
-                    ₹{rowTotal.toLocaleString('en-IN')}
+                  <Cell value={row.qrSaleAmtTom} onChange={(v) => handleShiftChange(idx, 'qrSaleAmtTom', v)} width="w-16" />
+                  <Cell value={row.qrSaleAmtTvm} onChange={(v) => handleShiftChange(idx, 'qrSaleAmtTvm', v)} width="w-16" />
+                  <Cell value={row.paidExitAmt} onChange={(v) => handleShiftChange(idx, 'paidExitAmt', v)} width="w-16" />
+                  <Cell value={row.qrRefundAmt} onChange={(v) => handleShiftChange(idx, 'qrRefundAmt', v)} width="w-16" />
+                  <Cell value={row.qrCancelAmt} onChange={(v) => handleShiftChange(idx, 'qrCancelAmt', v)} width="w-16" />
+                  <td className="border p-1 text-right font-mono bg-emerald-50">
+                    {(row.qrSaleAmtTom + row.qrSaleAmtTvm + row.paidExitAmt - row.qrRefundAmt - row.qrCancelAmt).toFixed(2)}
                   </td>
 
-                  {/* Adjustments */}
-                  <InputCell value={row.amtNotTaken} onChange={(v) => handleCellChange(idx, 'amtNotTaken', v)} width="w-20" isAmount />
-                  <InputCell value={row.penaltyAmt} onChange={(v) => handleCellChange(idx, 'penaltyAmt', v)} width="w-20" isAmount />
+                  <Cell value={row.cscSaleSV2} onChange={(v) => handleShiftChange(idx, 'cscSaleSV2', v)} width="w-14" />
+                  <Cell value={row.cscSaleT1} onChange={(v) => handleShiftChange(idx, 'cscSaleT1', v)} width="w-14" />
+                  <Cell value={row.cscAddValueAmtTom} onChange={(v) => handleShiftChange(idx, 'cscAddValueAmtTom', v)} width="w-16" />
+                  <Cell value={row.cscAddValueAmtTvm} onChange={(v) => handleShiftChange(idx, 'cscAddValueAmtTvm', v)} width="w-16" />
+                  <Cell value={row.ncmcAddValueAmtTom} onChange={(v) => handleShiftChange(idx, 'ncmcAddValueAmtTom', v)} width="w-16" />
+                  <Cell value={row.ncmcAddValueAmtTvm} onChange={(v) => handleShiftChange(idx, 'ncmcAddValueAmtTvm', v)} width="w-16" />
+                  <Cell value={row.cscRefundAmt} onChange={(v) => handleShiftChange(idx, 'cscRefundAmt', v)} width="w-16" />
+                  <td className="border p-1 text-right font-mono bg-teal-50">
+                    {(row.cscSaleAmt + row.cscAddValueAmtTom + row.cscAddValueAmtTvm + row.ncmcAddValueAmtTom + row.ncmcAddValueAmtTvm - row.cscRefundAmt).toFixed(2)}
+                  </td>
 
-                  {/* Delete Action (Only for dynamic rows) */}
-                  <td className="border border-gray-400 p-0 text-center bg-gray-50">
-                    {idx >= 10 ? (
-                      <button
-                        onClick={() => handleDeleteRow(idx)}
-                        className="text-red-600 font-bold hover:text-red-800 px-1"
-                        title="Delete custom row"
-                      >
-                        ×
-                      </button>
-                    ) : (
-                      <span className="text-gray-300 select-none">-</span>
-                    )}
+                  <Cell value={row.surchargeCashAmt} onChange={(v) => handleShiftChange(idx, 'surchargeCashAmt', v)} width="w-16" />
+                  <Cell value={row.surchargePurseAmt} onChange={(v) => handleShiftChange(idx, 'surchargePurseAmt', v)} width="w-16" />
+                  <Cell value={row.surchargeNcmcAmt} onChange={(v) => handleShiftChange(idx, 'surchargeNcmcAmt', v)} width="w-16" />
+                  <Cell value={row.surchargeNcmcPurseAmt} onChange={(v) => handleShiftChange(idx, 'surchargeNcmcPurseAmt', v)} width="w-16" />
+
+                  <Cell value={row.hdfcPos} onChange={(v) => handleShiftChange(idx, 'hdfcPos', v)} width="w-16" />
+                  <Cell value={row.upiTom} onChange={(v) => handleShiftChange(idx, 'upiTom', v)} width="w-16" />
+                  <Cell value={row.upiTvm} onChange={(v) => handleShiftChange(idx, 'upiTvm', v)} width="w-16" />
+                  <Cell value={row.outSourceEarning} onChange={(v) => handleShiftChange(idx, 'outSourceEarning', v)} width="w-16" />
+
+                  <td className="border p-1 text-right font-bold text-amber-900 bg-amber-200 font-mono w-24">
+                    ₹{rowAfc.toLocaleString('en-IN')}
                   </td>
                 </tr>
               );
             })}
           </tbody>
-
-          {/* TOTALS FOOTER ROW */}
           <tfoot>
-            <tr className="bg-amber-300 font-bold border-t-2 border-amber-600 text-gray-900 text-right">
-              <td colSpan={4} className="border border-gray-400 p-1 text-center bg-amber-400 font-bold">TOTAL</td>
-              <TotalCell value={totals.sjtQty} width="w-12" />
-              <TotalCell value={totals.sjtAmt} width="w-16" isAmount />
-              <TotalCell value={totals.paidExitQty} width="w-12" />
-              <TotalCell value={totals.paidExitAmt} width="w-16" isAmount />
-              <TotalCell value={totals.qrRefundQty} width="w-12" />
-              <TotalCell value={totals.qrRefundAmt} width="w-16" isAmount />
-              <TotalCell value={totals.qrCancelQty} width="w-12" />
-              <TotalCell value={totals.qrCancelAmt} width="w-16" isAmount />
-
-              <TotalCell value={totals.sv2Qty} width="w-12" />
-              <TotalCell value={totals.sv1Qty} width="w-12" />
-              <TotalCell value={totals.cscAmt} width="w-16" isAmount />
-              <TotalCell value={totals.addValueQty} width="w-12" />
-              <TotalCell value={totals.addValueAmt} width="w-16" isAmount />
-              <TotalCell value={totals.ncmcAddValueQty} width="w-12" />
-              <TotalCell value={totals.ncmcAddValueAmt} width="w-16" isAmount />
-              <TotalCell value={totals.cscRefundQty} width="w-12" />
-              <TotalCell value={totals.cscRefundAmt} width="w-16" isAmount />
-
-              <TotalCell value={totals.surchargeCashQty} width="w-12" />
-              <TotalCell value={totals.surchargeCashAmt} width="w-16" isAmount />
-              <TotalCell value={totals.surchargeNcmcQty} width="w-12" />
-              <TotalCell value={totals.surchargeNcmcAmt} width="w-16" isAmount />
-
-              <td className="border border-gray-400 p-1 font-bold text-red-900 bg-amber-400 font-mono text-sm w-24">
-                ₹{totals.totalAfcEarning.toLocaleString('en-IN')}
+            <tr className="bg-amber-300 font-bold text-gray-900">
+              <td colSpan={26} className="border p-2 text-right">TOTAL STATION AFC EARNING:</td>
+              <td className="border p-2 text-right text-sm text-red-900 font-mono">
+                ₹{totals.totalAfc.toLocaleString('en-IN')}
               </td>
-
-              <TotalCell value={totals.amtNotTaken} width="w-20" isAmount />
-              <TotalCell value={totals.penaltyAmt} width="w-20" isAmount />
-              <td className="border border-gray-400 p-1 bg-amber-400"></td>
             </tr>
           </tfoot>
         </table>
+      </div>
+
+      {/* CASH IN POSSESSION & CASH TO BANK DENOMINATION PANELS */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Cash In Possession */}
+        <DenominationBox
+          title="CASH IN POSSESSION (CURRENT MANUAL ENTRY)"
+          denom={cashInPossession}
+          setDenom={setCashInPossession}
+          total={totalPossessionCash}
+          bgColor="bg-emerald-50 border-emerald-400 text-emerald-900"
+        />
+
+        {/* Cash To Bank */}
+        <DenominationBox
+          title="CASH TO BANK (DEPOSITED AT END OF DAY)"
+          denom={cashToBank}
+          setDenom={setCashToBank}
+          total={totalBankCash}
+          bgColor="bg-blue-50 border-blue-400 text-blue-900"
+        />
       </div>
     </div>
   );
 }
 
-// Clean Input Cell Component (No Spinner Arrows)
-function InputCell({
-  value,
-  onChange,
-  width,
-  isAmount,
-}: {
-  value: number;
-  onChange: (val: string) => void;
-  width: string;
-  isAmount?: boolean;
-}) {
+function Cell({ value, onChange, width }: { value: number; onChange: (v: string) => void; width: string }) {
   return (
-    <td className={`border border-gray-400 p-0 ${width} bg-white`}>
+    <td className={`border p-0 ${width} bg-white`}>
       <input
         type="number"
         value={value === 0 ? '' : value}
         placeholder="0"
         onChange={(e) => onChange(e.target.value)}
-        className="w-full h-7 px-1 text-right text-gray-900 border-none bg-transparent focus:bg-yellow-100 focus:outline-none font-mono text-xs"
+        className="w-full h-7 px-1 text-right text-gray-900 bg-transparent focus:bg-yellow-100 focus:outline-none font-mono text-xs"
       />
     </td>
   );
 }
 
-// Total Summary Cell
-function TotalCell({ value, width, isAmount }: { value: number; width: string; isAmount?: boolean }) {
+function DenominationBox({ title, denom, setDenom, total, bgColor }: any) {
+  const notes = [
+    { label: '₹500', key: 'd500' }, { label: '₹200', key: 'd200' },
+    { label: '₹100', key: 'd100' }, { label: '₹50', key: 'd50' },
+    { label: '₹20', key: 'd20' },   { label: '₹10', key: 'd10' },
+    { label: '₹10 Coin', key: 'c10' }, { label: '₹5 Coin', key: 'c5' },
+    { label: '₹2 Coin', key: 'c2' },   { label: '₹1 Coin', key: 'c1' },
+  ];
+
   return (
-    <td className={`border border-gray-400 p-1 font-mono text-xs ${width}`}>
-      {isAmount ? `₹${value.toLocaleString('en-IN')}` : value}
-    </td>
+    <div className={`p-3 rounded border shadow-sm ${bgColor}`}>
+      <h3 className="font-bold border-b pb-1 mb-2">{title}</h3>
+      <div className="grid grid-cols-2 gap-2 text-xs">
+        {notes.map((n) => (
+          <div key={n.key} className="flex justify-between items-center bg-white p-1 rounded border">
+            <span className="font-semibold">{n.label}:</span>
+            <input
+              type="number"
+              placeholder="0"
+              value={denom[n.key] || ''}
+              onChange={(e) => setDenom({ ...denom, [n.key]: Number(e.target.value) || 0 })}
+              className="w-16 text-right border rounded px-1 font-mono"
+            />
+          </div>
+        ))}
+      </div>
+      <div className="mt-2 text-right font-bold text-sm">
+        Total Cash Amount: ₹{total.toLocaleString('en-IN')}
+      </div>
+    </div>
   );
 }
